@@ -6,6 +6,7 @@ import (
 )
 
 func main() {
+	go broadCastMessage()
 	http.HandleFunc("/ws", webserver)
 	err := http.ListenAndServe(":8081", nil)
 	if err != nil {

@@ -16,7 +16,6 @@ type Client struct {
 type Room struct {
 	roomId     string
 	clientList map[*Client]bool
-	broadcast  chan []byte
 }
 
 var upgrader = websocket.Upgrader{
@@ -27,7 +26,13 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+type Message struct {
+	message []byte
+	roomId  string
+}
+
 var roomList = make(map[string]*Room)
+var broadcastchan = make(chan Message)
 
 // func to create room
 func getOrcreateRoom(roomId string) *Room {
@@ -36,11 +41,9 @@ func getOrcreateRoom(roomId string) *Room {
 		room = &Room{
 			roomId:     roomId,
 			clientList: make(map[*Client]bool),
-			broadcast:  make(chan []byte),
 		}
 		roomList[roomId] = room
-		fmt.Printf("Room created with roomId %v\n", roomId) // Added newline for clarity
-		go room.run()
+		fmt.Printf("Room created with roomId %v\n", roomId)
 	}
 	return room
 }
@@ -59,7 +62,6 @@ func addUser(conn *websocket.Conn, roomId string) {
 
 func (c *Client) readMessage(room *Room) {
 	defer func() {
-		// room.unregisterClient(c)
 		c.conn.Close()
 	}()
 	for {
@@ -68,7 +70,11 @@ func (c *Client) readMessage(room *Room) {
 			log.Println("read error:", err)
 			break
 		}
-		room.broadcast <- message
+		msg := &Message{
+			roomId:  room.roomId,
+			message: message,
+		}
+		broadcastchan <- *msg
 	}
 }
 
@@ -85,17 +91,12 @@ func (c *Client) writeMessage() {
 	}
 }
 
-func (r *Room) run() {
-	for {
-		select {
-		case message := <-r.broadcast:
-			for client := range r.clientList {
-				select {
-				case client.send <- message:
-				default:
-					close(client.send)
-					delete(r.clientList, client)
-				}
+func broadCastMessage() {
+	for msg := range broadcastchan {
+		room, exists := roomList[msg.roomId]
+		if exists {
+			for client := range room.clientList {
+				client.send <- msg.message
 			}
 		}
 	}
